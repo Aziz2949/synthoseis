@@ -253,6 +253,40 @@ class SeismicVolume(Geomodel):
             self.rfc_noise_added[:] = self.rfc_raw[:]
         if hasattr(self.cfg, "wavelets"):
             self.bandlimit_volumes_wavelets(n_wavelets=1)
+
+        if getattr(self.cfg, "single_volume", False):
+            # Produce ONE primary 3D fullstack per run. No per-angle cubes, no
+            # cumsum variants, no augmentations / RMO / broadband / histogram
+            # normalisation — just the clean Ormsby-convolved reflectivity,
+            # stacked across the user-requested angles, cropped to the
+            # configured target shape and saved as a single .npy.
+            bandlimited = self.apply_bandlimits(self.rfc_noise_added[:])
+            if self.cfg.lateral_filter_size > 1:
+                bandlimited = self.apply_lateral_filter(bandlimited)
+            # Skip the 0°/45° QC stacks that were prepended/appended when
+            # model_qc_volumes was on — stack over the user's incident_angles only.
+            n_user = len(self.cfg.incident_angles)
+            if self.cfg.model_qc_volumes and bandlimited.shape[0] > n_user:
+                # 0° prepended, 45° appended: take the middle n_user cubes
+                start = 1
+                angle_slice = bandlimited[start : start + n_user, ...]
+            else:
+                angle_slice = bandlimited[:n_user, ...]
+            fullstack = self.stack_substacks(
+                [angle_slice[x, ...] for x in range(n_user)]
+            )
+            fullstack_scaled = self._scale_seismic(fullstack).astype(np.float32)
+            self.write_cube_to_disk(fullstack_scaled, "seismic_fullstack")
+            if getattr(self.cfg, "verbose", False):
+                print(
+                    f"...wrote single-volume fullstack: shape="
+                    f"{getattr(self.cfg, 'output_target_shape', fullstack_scaled.shape)}, "
+                    f"dtype=float32"
+                )
+            if getattr(self.cfg, "save_qc", False):
+                _ = self.postprocess_rfc_cubes(self.rfc_raw[:], "noise_free", bb=False)
+            return
+
         normalised_cumsum = self.postprocess_rfc_cubes(
             self.rfc_noise_added[:], "", stack=True
         )

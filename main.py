@@ -102,7 +102,13 @@ if __name__ == "__main__":
         "-c", "--config_file", help="Provide model parameter file", required=True
     )
     parser.add_argument(
-        "-n", "--num_runs", help="Number of models to create", default=1, type=int
+        "-n",
+        "--num-realizations",
+        "--num_runs",
+        dest="num_realizations",
+        help="Number of independent datasets to generate (default 1)",
+        default=1,
+        type=int,
     )
     parser.add_argument("-r", "--run_id", help="Run ID", default=None)
 
@@ -113,7 +119,7 @@ if __name__ == "__main__":
     for arg in vars(args):
         print(f"\t* {arg}: {getattr(args, arg)}")
 
-    for iRun in range(args.num_runs):
+    for iRun in range(args.num_realizations):
         # TODO Create a separate class to handle rpm randomization do these things need to be added to the config file?
         # Apply randomisation to the rock properties
         factor_dict = dict()

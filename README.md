@@ -23,12 +23,36 @@ We provide an [environment.yml](environment.yml) to install the required package
 
 ### Quick Start
 
-Run a model with parameters provided in the example config file
+Generate one clean 256×256×256 synthetic seismic volume using the defaults:
 
 ```
-conda activate synthoseis
-python main.py --config config/example.json --num_runs 1 --run_id seismic_example
+python main.py --config config/example.json --run_id seismic_example
 ```
+
+By default each invocation produces **exactly one** dataset. To batch several
+realisations, pass `--num-realizations N` (legacy `--num_runs` still works).
+
+### Default output
+
+- **Shape**: exactly `(256, 256, 256)` float32
+- **Bandwidth**: zero-phase Ormsby 8/12/60/80 Hz (dominant ≈ 40 Hz)
+- **Noise**: disabled — clean ground truth for AI training
+- **Structures**: faults + onlap unconformities + salt + basin-floor fans + sinuous channels (random mix per run)
+- **Files written**: one `seismic_fullstack_<timestamp>.npy`, plus label / horizon / fault / closure / salt / channel QC files in the run folder
+
+The `"output"` config block controls these:
+
+```json
+"output": {
+  "target_shape": [256, 256, 256],
+  "single_volume": true,
+  "save_qc": false
+}
+```
+
+Set `single_volume: false` to restore the legacy multi-output pipeline
+(per-angle RFC cubes, cumsum variants, augmented volumes). Set `save_qc: true`
+to also dump the noise-free QC variants alongside the primary volume.
 
 ### Overview of workflow
 
@@ -38,13 +62,14 @@ Build initial horizon at base and deposit layers of random thickness on top unti
 Choose facies for each layer
 Convert stack of horizons into a geologic age model
 Generate faults and apply to age model
+Insert sinuous channel belts into faulted lithology (fluvial / submarine)
 Identify closures using flood-filling algorithm
 Fill closures randomly with fluids
 Calculate elastic rock properties
 Calculate reflection coefficients for each required incident angle
-Apply random noise
-Convolve using Butterworth bandpass filter to generate bandlimited seismic reflectivity
-Apply geophysical augmentation (such as lateral smoothing, trace integration, amplitude balancing, RMO)
+(Optional) Apply random noise — disabled by default for clean training data
+Convolve reflectivity with zero-phase Ormsby wavelet (default 8/12/60/80 Hz)
+Stack across user-requested incident angles, crop to target_shape, write one .npy
 ```
 
 ### User parameters
@@ -64,10 +89,14 @@ An example user-parameter json format file is provided in the config folder, and
 | thickness_min              | Minimum thickness of layers (in samples)                                                                                                                                                                |
 | thickness_max              | Maximum thickness of layers (in samples)                                                                                                                                                                |
 | seabed_min_depth           | Random thickness layers are "deposited" on top of previous layers. When a horizon's minimum depth is below this value, this becomes the top-most horizon, usually the seabed                            |
-| signal_to_noise_ratio_db   | Signal to noise ratio in decibels to control the noise level of the output seismic data. A random value is chosen from a (trimmed) triangular distribution from the provided [left, mode, right] values |
-| bandwidth_low              | Bandpass low-cut value is chosen at random between the [low, high] values provided                                                                                                                      |
-| bandwidth_high             | Bandpass high-cut value is chosen at random between the [low, high] values provided                                                                                                                     |
-| bandwidth_ord              | Order of the slope used in the bandpass filter                                                                                                                                                          |
+| noise                      | `{enabled, coherent, signal_to_noise_ratio_db}`. `enabled: false` (default) produces noise-free seismic. `coherent: true` adds smile/frown coherent artefacts only when `enabled: true`. `signal_to_noise_ratio_db` is a `[left, mode, right]` triangular distribution used when `enabled: true`.            |
+| wavelet                    | `{type, f1, f2, f3, f4, dominant_freq, length_ms}`. `type: "ormsby"` (default) uses a zero-phase Ormsby wavelet with the four-corner passband `[f1, f2, f3, f4]` Hz. `type: "ricker"` uses a Ricker wavelet at `dominant_freq`. `type: "butterworth"` falls back to the legacy Butterworth bandpass using `bandwidth_low`/`bandwidth_high`. |
+| bandwidth_low              | Low-cut Butterworth corner range (only used when wavelet type is `"butterworth"`)                                                                                                                       |
+| bandwidth_high             | High-cut Butterworth corner range (only used when wavelet type is `"butterworth"`)                                                                                                                      |
+| bandwidth_ord              | Order of the Butterworth bandpass filter                                                                                                                                                                |
+| lateral_filter_size        | Size of the XY box filter applied to the bandlimited reflectivity. `1` (default) disables lateral smoothing so channel edges and fault steps stay sharp                                                |
+| augmentations              | `{enabled, rmo}`. Default `false / false`: skips the random tz stretch/squeeze and residual moveout that distort event geometry and blur labels                                                         |
+| output                     | `{target_shape, single_volume, save_qc}`. `target_shape` (default `[256,256,256]`) is enforced at save time via crop/pad. `single_volume: true` writes one primary fullstack per run. `save_qc: true` also writes the noise-free QC variants                |
 | dip_factor_max             | A scaling factor applied to the dip of each layer                                                                                                                                                       |
 | min_number_faults          | Minimum number of faults in the model                                                                                                                                                                   |
 | max_number_faults          | Maximum number of faults in the model                                                                                                                                                                   |
