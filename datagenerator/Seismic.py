@@ -243,7 +243,14 @@ class SeismicVolume(Geomodel):
             )
         # Calculate Raw RFC from rho, vp, vs using Zoeppritz & write to HdF
         self.create_rfc_volumes()
-        self.add_weighted_noise(self.faults.faulted_depth_maps)
+        if getattr(self.cfg, "noise_enabled", True):
+            self.add_weighted_noise(self.faults.faulted_depth_maps)
+        else:
+            # Noise disabled: downstream still reads rfc_noise_added, so mirror the
+            # raw Zoeppritz reflectivity into it and keep a single code path.
+            if self.cfg.verbose:
+                print("...noise disabled, using raw Zoeppritz reflectivity unchanged.")
+            self.rfc_noise_added[:] = self.rfc_raw[:]
         if hasattr(self.cfg, "wavelets"):
             self.bandlimit_volumes_wavelets(n_wavelets=1)
         normalised_cumsum = self.postprocess_rfc_cubes(

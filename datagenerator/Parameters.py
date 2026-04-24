@@ -565,9 +565,11 @@ class Parameters(_Borg):
             self.bandwidth_high[0], self.bandwidth_high[1]
         )
 
-        # Choose whether to add coherent noise
-        self.add_noise = np.random.choice((0, 1))
-        if self.add_noise == 1:
+        # Coherent noise is off unless the user explicitly enables it via
+        # the noise.coherent config flag. This is deterministic so runs aimed
+        # at producing clean ground-truth data never get a random noise layer.
+        if self.noise_enabled and self.noise_coherent:
+            self.add_noise = 1
             self.smiley_or_frowny = np.random.choice((0, 1))
             if self.smiley_or_frowny == 1:
                 self.fnoise = "random_coherent_frowns"
@@ -576,8 +578,13 @@ class Parameters(_Borg):
                 self.fnoise = "random_coherent_smiles"
                 print("Coherent smiles will be inserted")
         else:
-            self.fnoise = "random"
-            print("No coherent noise will be inserted")
+            self.add_noise = 0
+            self.smiley_or_frowny = 0
+            self.fnoise = "none" if not self.noise_enabled else "random"
+            if self.noise_enabled:
+                print("Random incoherent noise only (coherent disabled).")
+            else:
+                print("Noise disabled — generating clean ground-truth seismic.")
 
         # Salt inclusion
         # self.include_salt = np.random.choice([True, False], 1, p=[0.5, 0.5])[0]
@@ -649,8 +656,18 @@ class Parameters(_Borg):
         self.thickness_min = d["thickness_min"]
         self.thickness_max = d["thickness_max"]
         self.seabed_min_depth = d["seabed_min_depth"]
-        self.snr_db = d["signal_to_noise_ratio_db"]
-        # self.random_depth_perturb = d['random_depth_perturb_range']
+
+        # Noise configuration. New shape: {"enabled": bool, "coherent": bool,
+        # "signal_to_noise_ratio_db": [left, mode, right]}. Default enabled=False
+        # so AI training volumes are clean ground truth unless explicitly opted in.
+        noise_cfg = d.get("noise", {})
+        self.noise_enabled = bool(noise_cfg.get("enabled", False))
+        self.noise_coherent = bool(noise_cfg.get("coherent", False))
+        self.snr_db = noise_cfg.get(
+            "signal_to_noise_ratio_db",
+            d.get("signal_to_noise_ratio_db", [20.0, 25.0, 30.0]),
+        )
+
         self.bandwidth_low = d["bandwidth_low"]
         self.bandwidth_high = d["bandwidth_high"]
         self.bandwidth_ord = d["bandwidth_ord"]

@@ -10,7 +10,11 @@
   "thickness_min": 2,
   "thickness_max": 12,
   "seabed_min_depth": [20, 50],
-  "signal_to_noise_ratio_db": [7.5, 12.5, 17.5],
+  "noise": {
+    "enabled": false,
+    "coherent": false,
+    "signal_to_noise_ratio_db": [20.0, 25.0, 30.0]
+  },
   "bandwidth_low": [3.0, 6.0],
   "bandwidth_high": [20.0, 35.0],
   "bandwidth_ord": 4,
