@@ -486,8 +486,24 @@ class Geomodel:
 
         It generates a `.npy` file on disk.
         """
-        """Write 3D array to npy format."""
-        fname = os.path.join(
+        data = self._finalize_shape(data)
+        out = os.path.join(
             self.cfg.work_subfolder, f"{fname}_{self.cfg.date_stamp}.npy"
         )
-        np.save(fname, data)
+        np.save(out, data)
+
+    def _finalize_shape(self, data: np.ndarray) -> np.ndarray:
+        """Crop (or zero-pad) 3D data to cfg.output_target_shape before saving.
+
+        Synthesis runs with cube_shape + pad_samples on Z, so every saved cube
+        would otherwise have the internal, padded shape. Cropping at the save
+        boundary guarantees every written volume is exactly the configured
+        target shape (default 256x256x256) without disturbing upstream code.
+        """
+        target = tuple(getattr(self.cfg, "output_target_shape", ()))
+        if len(target) != 3 or data.ndim != 3:
+            return data
+        out = np.zeros(target, dtype=data.dtype)
+        clip = tuple(min(t, s) for t, s in zip(target, data.shape))
+        out[: clip[0], : clip[1], : clip[2]] = data[: clip[0], : clip[1], : clip[2]]
+        return out
