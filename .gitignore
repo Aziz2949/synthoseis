@@ -12,3 +12,28 @@ tags
 /multvt2vds.freq.log
 wip*
 *.code-workspace
+
+# Generated synthetic datasets — never commit these to GitHub.
+# A single 256^3 float32 volume is ~64 MB; batches blow past GitHub's 100 MB/file limit.
+*.npy
+*.segy
+*.sgy
+*.hdf
+*.hdf5
+*.h5
+*.key
+
+# Output and working directories produced by main.py runs
+output/
+outputs/
+results/
+runs/
+scratch/
+/seismic*/
+seismic__*/
+temp_folder__*/
+synthoseis_example*/
+model_parameters_*.txt
+sql_log.txt
+parameters.db
+*.png
