@@ -60,7 +60,19 @@ def build_model(user_json: str, run_id, test_mode: int = None, rpm_factors=None)
     seismic.build_elastic_properties("inv_vel")
     seismic.build_seismic_volumes()
 
-    closures.write_closure_info_to_log(seismic.rfc_raw[1:4, ...])
+    # Slice the RFC cube down to the user-requested incident angles only.
+    # When model_qc_volumes is on the 0° stack is prepended and the 45° stack
+    # appended, so the user angles live at indices 1..len(user_angles)+1;
+    # otherwise the user angles occupy the entire first axis.
+    n_user = len(p.incident_angles)
+    if getattr(p, "model_qc_volumes", False) and seismic.rfc_raw.shape[0] > n_user:
+        rfc_for_log = seismic.rfc_raw[1 : 1 + n_user, ...]
+    else:
+        rfc_for_log = seismic.rfc_raw[:n_user, ...]
+    try:
+        closures.write_closure_info_to_log(rfc_for_log)
+    except Exception as exc:
+        p.write_to_logfile(f"write_closure_info_to_log skipped: {exc}")
 
     elapsed_time = datetime.datetime.now() - p.start_time
     print("\n\n\n...elapsed time is {}".format(elapsed_time))

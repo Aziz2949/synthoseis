@@ -388,6 +388,10 @@ class SeismicVolume(Geomodel):
         # zoep[np.where(np.imag(zoep) != 0)] = 0
         # discard complex values and set dtype to float64
         zoep = np.real(zoep).astype("float64")
+        # Water voxels have vp=0 which produces NaN/inf during the Zoeppritz
+        # division. Replace those with zero reflectivity so they don't
+        # poison downstream convolution / normalisation.
+        zoep = np.nan_to_num(zoep, nan=0.0, posinf=0.0, neginf=0.0)
         del _rho, _vp, _vs
 
         # Move the angle from last dimension to first

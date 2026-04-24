@@ -346,10 +346,16 @@ class RandomHorizonStack(Horizons):
     def _generate_lookup_tables(self):
         # Thicknesses
         self.thicknesses = stats.gamma.rvs(4.0, 2, size=self.cfg.num_lyr_lut)
-        # Onlaps
+        # Onlaps are picked from the shallowest ~40% of Z, so clamp the
+        # picking range to the actual onlap array size. The original code
+        # hard-coded high=200 which overshoots when cube_shape[2] < 500.
+        onlap_array_dim = max(10, int(500 / 1250 * self.cfg.cube_shape[2]))
+        high_onlap = max(6, onlap_array_dim - 1)
         onlap_layer_list = np.sort(
             np.random.uniform(
-                low=5, high=200, size=int(np.random.triangular(1, 4, 7) + 0.5)
+                low=5,
+                high=high_onlap,
+                size=int(np.random.triangular(1, 4, 7) + 0.5),
             ).astype("int")
         )
         # Dips
@@ -368,7 +374,6 @@ class RandomHorizonStack(Horizons):
         if self.cfg.verbose:
             print("self.cfg.num_lyr_lut = ", self.cfg.num_lyr_lut)
             print("onlap_layer_list = ", onlap_layer_list)
-        onlap_array_dim = int(500 / 1250 * self.cfg.cube_shape[2])
         self.onlaps = np.zeros(onlap_array_dim, "int")
         self.onlaps[onlap_layer_list] = 1
 

@@ -2,7 +2,7 @@
   "project": "example",
   "project_folder": "/scratch/synthoseis_example",
   "work_folder": "/scratch",
-  "cube_shape": [256, 256, 256],
+  "cube_shape": [256, 256, 512],
   "incident_angles": [7, 15, 24],
   "digi": 4,
   "infill_factor": 10,
@@ -51,7 +51,7 @@
     "single_volume": true,
     "save_qc": false
   },
-  "extra_qc_plots": true,
+  "extra_qc_plots": false,
   "verbose": true,
   "partial_voxels": true,
   "variable_shale_ng": false,
@@ -60,6 +60,6 @@
   "include_salt": true,
   "write_to_hdf": false,
   "broadband_qc_volume": false,
-  "model_qc_volumes": true,
+  "model_qc_volumes": false,
   "multiprocess_bp": true
 }

@@ -1618,8 +1618,11 @@ class Faults(Horizons, Geomodel):
                         faulted_geologic_age[i, j, :],
                         np.arange(faulted_geologic_age.shape[-1]).astype("float"),
                     )
-                else:
-                    faulted_depth_maps[i, j, :] = unfaulted_geologic_age[i, j, :]
+                # Fallback when ages are not strictly monotonic at this trace:
+                # leave faulted_depth_maps[i, j, :] untouched (the previous
+                # assignment attempted to write a Z-long age column into a
+                # horizons-count slot, which only happens to fit when
+                # Z == n_horizons — never true in real runs).
         # Waterbottom horizon has been set to 0. Re-insert this from the original depth_maps array
         if np.count_nonzero(faulted_depth_maps[:, :, 0]) == 0:
             faulted_depth_maps[:, :, 0] = self.faulted_depth_maps[:, :, 0] * 1.0
@@ -2149,6 +2152,13 @@ class Faults(Horizons, Geomodel):
                         do_it = False
                         break
 
+                    if xyz_xyz.shape[1] == 0:
+                        # No valid candidate positions found for this fault;
+                        # skip it rather than crashing the whole run.
+                        print("   ... No valid fault centre candidates, skipping fault")
+                        random_idx = []
+                        do_it = False
+                        break
                     random_idx = xyz_xyz[:, np.random.choice(xyz_xyz.shape[1])]
                     print(
                         "   ... Computing fault middle to hang max displacement function"
