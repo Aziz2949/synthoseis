@@ -213,7 +213,14 @@ class Faults(Horizons, Geomodel):
             _faulted_onlap_segments, 0.45
         )
         del _faulted_onlap_segments
-        if self.cfg.include_channels:
+        # Legacy fluvsim channel path: only run if the fortran fluvsim pipeline
+        # populated floodplain_shale/channel_fill/... on the geomodel. The
+        # procedural channel overlay (channels.py) is applied later in main.py
+        # and does not use these attrs, so this block stays skipped in the
+        # default pipeline.
+        if self.cfg.include_channels and getattr(
+            self.vols, "floodplain_shale", None
+        ) is not None:
             self.vols.floodplain_shale = self.apply_xyz_displacement(
                 self.vols.floodplain_shale
             )

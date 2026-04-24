@@ -12,6 +12,7 @@ from datagenerator.Geomodels import Geomodel
 from datagenerator.Horizons import build_unfaulted_depth_maps, create_facies_array
 from datagenerator.Parameters import Parameters
 from datagenerator.Seismic import SeismicVolume
+from datagenerator.channels import apply_channels_to_geomodel
 from datagenerator.util import plot_3D_closure_plot
 
 
@@ -36,6 +37,11 @@ def build_model(user_json: str, run_id, test_mode: int = None, rpm_factors=None)
     f.apply_faulting_to_geomodels_and_depth_maps()
     # Build faulted lithology, net_to_gross and depth and randomised models
     f.build_faulted_property_geomodels(facies)
+
+    # Insert channels (fluvial / submarine) into the faulted lithology and
+    # net-to-gross cubes so they become sand-filled before elastic-property
+    # computation. Controlled by cfg.include_channels (default on).
+    apply_channels_to_geomodel(f, p)
 
     # Create closures, remove false closures and and output closures
     closures = Closures(p, f, facies, onlap_list)
