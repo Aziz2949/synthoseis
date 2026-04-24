@@ -15,8 +15,17 @@
     "coherent": false,
     "signal_to_noise_ratio_db": [20.0, 25.0, 30.0]
   },
-  "bandwidth_low": [3.0, 6.0],
-  "bandwidth_high": [20.0, 35.0],
+  "wavelet": {
+    "type": "ormsby",
+    "f1": 8.0,
+    "f2": 12.0,
+    "f3": 60.0,
+    "f4": 80.0,
+    "dominant_freq": 40.0,
+    "length_ms": 200.0
+  },
+  "bandwidth_low": [8.0, 12.0],
+  "bandwidth_high": [60.0, 80.0],
   "bandwidth_ord": 4,
   "dip_factor_max": 2,
   "min_number_faults": 1,
@@ -27,11 +36,15 @@
   "min_closure_voxels_simple": 500,
   "min_closure_voxels_faulted": 2500,
   "min_closure_voxels_onlap": 500,
-  "sand_layer_thickness":2,
-  "sand_layer_fraction":
-  {
+  "sand_layer_thickness": 2,
+  "sand_layer_fraction": {
     "min": 0.05,
     "max": 0.25
+  },
+  "lateral_filter_size": 1,
+  "augmentations": {
+    "enabled": false,
+    "rmo": false
   },
   "extra_qc_plots": true,
   "verbose": true,

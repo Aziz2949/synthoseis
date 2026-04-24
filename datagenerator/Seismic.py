@@ -7,7 +7,7 @@ from tqdm import trange
 from datagenerator.histogram_equalizer import normalize_seismic
 from datagenerator.Geomodels import Geomodel
 from datagenerator.util import write_data_to_hdf
-from datagenerator.wavelets import generate_wavelet, plot_wavelets
+from datagenerator.wavelets import generate_wavelet, plot_wavelets, ormsby, ricker
 from rockphysics.RockPropertyModels import select_rpm, RockProperties, EndMemberMixing
 
 
@@ -256,15 +256,18 @@ class SeismicVolume(Geomodel):
         normalised_cumsum = self.postprocess_rfc_cubes(
             self.rfc_noise_added[:], "", stack=True
         )
-        self.apply_augmentations(normalised_cumsum, name="cumsum")
+        if getattr(self.cfg, "augmentations_enabled", False):
+            self.apply_augmentations(normalised_cumsum, name="cumsum")
         if self.cfg.model_qc_volumes:
             _ = self.postprocess_rfc_cubes(self.rfc_raw[:], "noise_free", bb=False)
             if self.cfg.broadband_qc_volume:
                 _ = self.postprocess_rfc_cubes(
                     self.rfc_raw[:], "noise_free_bb", bb=True
                 )
-            normalised_cumsum_rmo = self.apply_rmo(normalised_cumsum)
-            self.apply_augmentations(normalised_cumsum_rmo, name="cumsum_RMO")
+            if getattr(self.cfg, "apply_rmo_enabled", False):
+                normalised_cumsum_rmo = self.apply_rmo(normalised_cumsum)
+                if getattr(self.cfg, "augmentations_enabled", False):
+                    self.apply_augmentations(normalised_cumsum_rmo, name="cumsum_RMO")
 
     def _scale_seismic(self, data):
         """Apply scaling factor to final seismic data volumes"""
@@ -478,10 +481,17 @@ class SeismicVolume(Geomodel):
 
     def apply_bandlimits(self, data, frequencies=None):
         """
-        Apply Butterworth Bandpass Filter to data
-        :param data: 4D array of RFC values
-        :param frequencies: Explicit frequency bounds (lower, upper)
-        :return: 4D array of band-limited RFC
+        Band-limit reflectivity cubes by convolving with the configured wavelet.
+
+        Default path is a zero-phase Ormsby wavelet (corners from cfg.wavelet_f1..f4)
+        which matches clean processed-seismic bandwidth. Setting cfg.wavelet_type
+        to "butterworth" or "ricker" falls back to those alternatives.
+
+        :param data: 4D array of RFC values (angles, X, Y, Z)
+        :param frequencies: Optional explicit (low_cut, high_cut) override. When set,
+            a Butterworth bandpass is used regardless of wavelet_type — this is used
+            by the broadband QC path.
+        :return: 4D array of band-limited reflectivity with the same shape as input.
         """
         if self.cfg.verbose:
             print(f"Data Min: {np.min(data):.2f}, Data Max: {np.max(data):.2f}")
@@ -492,43 +502,68 @@ class SeismicVolume(Geomodel):
         ):
             # Input data is infilled
             dt /= self.cfg.infill_factor
-        if frequencies:  # if frequencies explicitly defined
-            low = frequencies[0]
-            high = frequencies[1]
-        else:
-            low = self.cfg.lowfreq
-            high = self.cfg.highfreq
-        b, a = derive_butterworth_bandpass(
-            low, high, (dt * 1000.0), order=self.cfg.order
-        )
-        if self.cfg.verbose:
-            print(f"\t... Low Frequency; {low:.2f} Hz, High Frequency: {high:.2f} Hz")
-            print(
-                f"\t... start_width: {1.0 / (dt * low):.4f}, end_width: {1.0 / (dt * high):.4f}"
-            )
+        dt_ms = dt * 1000.0
 
-        # Loop over 3D angle stack arrays
-        if self.cfg.verbose:
-            print(" ... shape of data being bandlimited = ", data.shape, "\n")
-        num = data.shape[0]
-        if self.cfg.verbose:
-            print(f"Applying Bandpass to {num} cubes")
-        if self.cfg.multiprocess_bp:
-            # Much faster to use multiprocessing and apply band-limitation to entire cube at once
-            with Pool(processes=min(num, os.cpu_count() - 2)) as p:
-                iterator = zip(
-                    [data[x, ...] for x in range(num)],
-                    itertools.repeat(b),
-                    itertools.repeat(a),
+        use_butter = frequencies is not None or getattr(
+            self.cfg, "wavelet_type", "ormsby"
+        ) == "butterworth"
+
+        if use_butter:
+            if frequencies:
+                low, high = frequencies[0], frequencies[1]
+            else:
+                low, high = self.cfg.lowfreq, self.cfg.highfreq
+            b, a = derive_butterworth_bandpass(low, high, dt_ms, order=self.cfg.order)
+            if self.cfg.verbose:
+                print(
+                    f"\t... Butterworth bandpass: {low:.2f}-{high:.2f} Hz, order={self.cfg.order}"
                 )
-                out_cubes_mp = p.starmap(self._run_bandpass_on_cubes, iterator)
-            out_cubes = np.asarray(out_cubes_mp)
-        else:
-            # multiprocessing can fail using Python version 3.6 and very large arrays
-            out_cubes = np.zeros_like(data)
-            for idx in range(num):
-                out_cubes[idx, ...] = self._run_bandpass_on_cubes(data[idx, ...], b, a)
+            num = data.shape[0]
+            if self.cfg.multiprocess_bp:
+                with Pool(processes=min(num, max(1, os.cpu_count() - 2))) as p:
+                    iterator = zip(
+                        [data[x, ...] for x in range(num)],
+                        itertools.repeat(b),
+                        itertools.repeat(a),
+                    )
+                    out_cubes_mp = p.starmap(self._run_bandpass_on_cubes, iterator)
+                out_cubes = np.asarray(out_cubes_mp)
+            else:
+                out_cubes = np.zeros_like(data)
+                for idx in range(num):
+                    out_cubes[idx, ...] = self._run_bandpass_on_cubes(
+                        data[idx, ...], b, a
+                    )
+            return out_cubes
 
+        # Wavelet convolution path — Ormsby (default) or Ricker.
+        wtype = getattr(self.cfg, "wavelet_type", "ormsby")
+        length_ms = getattr(self.cfg, "wavelet_length_ms", 200.0)
+        if wtype == "ricker":
+            _, wavelet = ricker(
+                getattr(self.cfg, "wavelet_dominant_freq", 40.0),
+                dt_ms,
+                convolutions=1,
+            )
+        else:
+            _, wavelet = ormsby(
+                self.cfg.wavelet_f1,
+                self.cfg.wavelet_f2,
+                self.cfg.wavelet_f3,
+                self.cfg.wavelet_f4,
+                dt_ms,
+                length_ms=length_ms,
+            )
+        if self.cfg.verbose:
+            print(
+                f"\t... {wtype} wavelet: dt={dt_ms} ms, "
+                f"corners=({self.cfg.wavelet_f1},{self.cfg.wavelet_f2},"
+                f"{self.cfg.wavelet_f3},{self.cfg.wavelet_f4}) Hz, "
+                f"peak~{self.cfg.wavelet_dominant_freq} Hz, len={len(wavelet)} samples"
+            )
+        out_cubes = np.zeros_like(data)
+        for idx in range(data.shape[0]):
+            out_cubes[idx, ...] = apply_wavelet(data[idx, ...], wavelet)
         return out_cubes
 
     @staticmethod

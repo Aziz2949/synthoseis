@@ -103,6 +103,53 @@ def ricker(f, dt, convolutions=2):
     return t, s * hanningwindow
 
 
+def ormsby(f1, f2, f3, f4, dt, length_ms=200.0):
+    """Zero-phase Ormsby wavelet defined by four corner frequencies (Hz).
+
+    f1 = low-cut, f2 = low-pass, f3 = high-pass, f4 = high-cut.
+    dt is sampling interval in ms. length_ms is total wavelet length in ms.
+
+    Built in the frequency domain (trapezoidal passband → real IFFT) so the
+    resulting time-domain wavelet is guaranteed zero-phase with the intended
+    spectrum. Peak frequency is approximately (f2 + f3) / 2.
+    """
+    if not (f1 < f2 < f3 < f4):
+        raise ValueError(
+            f"Ormsby corners must satisfy f1<f2<f3<f4, got {f1},{f2},{f3},{f4}"
+        )
+    dt_s = dt / 1000.0
+    nyq = 0.5 / dt_s
+    if f4 >= nyq:
+        raise ValueError(
+            f"Ormsby f4={f4} Hz exceeds Nyquist={nyq:.1f} Hz for dt={dt} ms"
+        )
+    n = int(round(length_ms / dt))
+    if n % 2 == 0:
+        n += 1  # odd length so the wavelet is symmetric about t=0
+    # Large FFT so the inverse transform is densely sampled before we window
+    nfft = max(2048, 4 * n)
+    freqs = np.fft.rfftfreq(nfft, d=dt_s)
+    spec = np.zeros_like(freqs)
+    # Trapezoidal amplitude spectrum
+    mid_mask = (freqs >= f2) & (freqs <= f3)
+    spec[mid_mask] = 1.0
+    ramp_up = (freqs > f1) & (freqs < f2)
+    spec[ramp_up] = (freqs[ramp_up] - f1) / (f2 - f1)
+    ramp_dn = (freqs > f3) & (freqs < f4)
+    spec[ramp_dn] = (f4 - freqs[ramp_dn]) / (f4 - f3)
+    # Zero phase → real spectrum → IFFT is a real, symmetric time-domain wavelet.
+    full = np.fft.irfft(spec, n=nfft)
+    full = np.fft.fftshift(full)
+    center = nfft // 2
+    half = n // 2
+    w = full[center - half : center + half + 1].copy()
+    # taper edges to suppress ringing in convolution
+    w *= hanflat(w, 0.70)
+    w /= np.abs(w).max()
+    t = (np.arange(n) - n // 2) * dt_s
+    return t * 1000.0, w
+
+
 def default_fft(digi=4, convolutions=4):
     """Setup a default fft"""
     Nyquist = 0.5 * 1000.0 / digi

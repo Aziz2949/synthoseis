@@ -535,8 +535,10 @@ class Parameters(_Borg):
             * self.infill_factor
         )
 
-        # lateral filter size, either 1x1, 3x3 or 5x5
-        self.lateral_filter_size = int(np.random.uniform(0, 2) + 0.5) * 2 + 1
+        # lateral filter size: 1 (no smoothing, default) preserves channel edges
+        # and yields the sharpest "clean processed" seismic. Set >1 in config to
+        # restore the legacy random 3x3 / 5x5 smear.
+        self.lateral_filter_size = int(getattr(self, "lateral_filter_size_override", 1))
 
         # Signal to noise in decibels
         sn_db = triangle_distribution_fix(
@@ -671,6 +673,18 @@ class Parameters(_Borg):
         self.bandwidth_low = d["bandwidth_low"]
         self.bandwidth_high = d["bandwidth_high"]
         self.bandwidth_ord = d["bandwidth_ord"]
+
+        # Wavelet configuration. Default is a zero-phase Ormsby 8/12/60/80 Hz
+        # (dominant ~40 Hz) which matches normal processed seismic bandwidth.
+        # Setting type="butterworth" falls back to the legacy Butterworth bandpass.
+        wv = d.get("wavelet", {})
+        self.wavelet_type = wv.get("type", "ormsby")
+        self.wavelet_f1 = float(wv.get("f1", 8.0))
+        self.wavelet_f2 = float(wv.get("f2", 12.0))
+        self.wavelet_f3 = float(wv.get("f3", 60.0))
+        self.wavelet_f4 = float(wv.get("f4", 80.0))
+        self.wavelet_dominant_freq = float(wv.get("dominant_freq", 40.0))
+        self.wavelet_length_ms = float(wv.get("length_ms", 200.0))
         self.dip_factor_max = d["dip_factor_max"]
         self.min_number_faults = d["min_number_faults"]
         self.max_number_faults = d["max_number_faults"]
@@ -694,6 +708,27 @@ class Parameters(_Borg):
         self.broadband_qc_volume = d["broadband_qc_volume"]
         self.model_qc_volumes = d["model_qc_volumes"]
         self.multiprocess_bp = d["multiprocess_bp"]
+
+        # Output shape & single-dataset controls.
+        # output.target_shape [X,Y,Z] — volumes are cropped/padded to this before
+        #   being written to disk. Default [256,256,256] for AI training.
+        # output.single_volume — when true, write one primary fullstack volume only
+        #   and skip all per-angle / RMO / augmented / QC variants.
+        # output.save_qc — enable extra QC volumes alongside the primary output.
+        out_cfg = d.get("output", {})
+        self.output_target_shape = tuple(out_cfg.get("target_shape", [256, 256, 256]))
+        self.single_volume = bool(out_cfg.get("single_volume", True))
+        self.save_qc = bool(out_cfg.get("save_qc", False))
+
+        # Augmentation controls. Default off to produce clean ground truth:
+        # disables the random tz stretch/squeeze and random residual moveout.
+        aug_cfg = d.get("augmentations", {})
+        self.augmentations_enabled = bool(aug_cfg.get("enabled", False))
+        self.apply_rmo_enabled = bool(aug_cfg.get("rmo", False))
+
+        # Lateral smoothing filter size (1 = no smoothing, preserves channel edges).
+        # Back-compat: if not set, honor the legacy random 1/3/5 pick (see _randomly_chosen_model_parameters).
+        self.lateral_filter_size_override = d.get("lateral_filter_size", 1)
 
         # print em
         self.__repr__()
