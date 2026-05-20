@@ -758,7 +758,32 @@ def _parse_cli(argv):
     return p.parse_args(argv)
 
 
-if __name__ == "__main__":
+def _in_jupyter() -> bool:
+    """True when this module is executing inside a Jupyter / IPython kernel.
+
+    Used to skip CLI argument parsing when the whole file is copy-pasted
+    into a notebook cell — otherwise argparse would try to consume the
+    kernel's own argv (``-f /path/to/kernel.json``) and abort.
+    """
+    import sys
+    # IPython injects get_ipython() into the user namespace of every cell.
+    if "get_ipython" in globals():
+        return True
+    # The kernel launcher leaves "ipykernel" / "jupyter" in argv[0].
+    argv0 = sys.argv[0] if sys.argv else ""
+    if "ipykernel" in argv0 or "jupyter" in argv0:
+        return True
+    # Final fallback: check whether IPython has been imported & has a kernel.
+    try:
+        import IPython  # type: ignore
+        ip = IPython.get_ipython()
+        return ip is not None and "ipykernel" in type(ip).__module__
+    except Exception:
+        return False
+
+
+def _run_default_cli() -> None:
+    """Argparse-driven entry point used when invoked as a real script."""
     import sys
 
     args = _parse_cli(sys.argv[1:])
@@ -775,3 +800,24 @@ if __name__ == "__main__":
         verbose=not args.quiet,
     )
     run_dataset(cfg)
+
+
+if __name__ == "__main__":
+    if _in_jupyter():
+        # Pasted into a notebook cell — don't try to parse Jupyter's argv.
+        # All classes/functions are now defined; call them from the next cell:
+        #
+        #     cfg = GenConfig(n_volumes=2, out_dir="./synth_out", n_workers=2)
+        #     run_dataset(cfg)
+        #
+        #     # or a single in-memory cube:
+        #     vol = build_volume(seed=10_000, cfg=GenConfig())
+        print(
+            "synthetic_seismic_3d loaded into the notebook. Example usage:\n"
+            "    cfg = GenConfig(n_volumes=2, out_dir='./synth_out', n_workers=2)\n"
+            "    run_dataset(cfg)\n"
+            "    # or a single in-memory cube:\n"
+            "    vol = build_volume(seed=10_000, cfg=GenConfig())"
+        )
+    else:
+        _run_default_cli()
